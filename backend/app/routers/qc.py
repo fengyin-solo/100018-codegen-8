@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import ActionResult, EntryPayload, QcListResult
 from app.services.qc import QcService
 
 router = APIRouter(prefix="/api/qc", tags=["质量控制"])
@@ -16,18 +16,51 @@ LIST_FIELDS = ["质控编号", "质控类别", "标准值", "允许偏差", "实
 STATUSES = ["待检测", "检测中", "受控", "失控"]
 
 
-@router.get("", response_model=PageResult[dict])
+@router.get("", response_model=QcListResult)
 def list_entries(
     keyword: str | None = Query(default=None, description="按质控编号检索"),
+    category: str | None = Query(default=None, description="按质控类别检索"),
+    standard_value: str | None = Query(default=None, description="按标准值检索"),
+    deviation: str | None = Query(default=None, description="按允许偏差检索"),
+    standard_min: float | None = Query(default=None, description="标准值下限"),
+    standard_max: float | None = Query(default=None, description="标准值上限"),
+    deviation_min: float | None = Query(default=None, description="允许偏差下限"),
+    deviation_max: float | None = Query(default=None, description="允许偏差上限"),
     status: str | None = Query(default=None, description="待检测、检测中、受控、失控"),
+    sort: str | None = Query(default=None, description="排序字段"),
+    order: str = Query(default="asc", description="排序方向 asc/desc"),
     page: int = 1,
     size: int = 20,
-) -> PageResult[dict]:
-    """按质控编号与状态过滤质量控制列表；没有数据时返回空页，不报错。"""
+) -> QcListResult:
+    """按质控编号、质控类别、标准值、允许偏差组合筛选并排序；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
-    return PageResult(items=items, total=total, page=page, size=size)
+    try:
+        result = service.list_entries(
+            keyword=keyword,
+            category=category,
+            standard_value=standard_value,
+            deviation=deviation,
+            standard_min=standard_min,
+            standard_max=standard_max,
+            deviation_min=deviation_min,
+            deviation_max=deviation_max,
+            status=status,
+            sort=sort,
+            order=order,
+            page=page,
+            size=size,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return QcListResult(size=size, **result)
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出质量控制清单：返回当前过滤条件下的全量数据。"""
+    result = service.list_entries(page=1, size=10000)
+    return {"module": "qc", "total": result["total"], "items": result["items"]}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +89,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出质量控制清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "qc", "total": total, "items": items}

@@ -21,6 +21,13 @@ class ActionResult(BaseModel):
     entry: dict[str, Any] | None = None
 
 
+class QcListResult(PageResult[dict]):
+    """质量控制列表响应：在通用分页之外带上总屏数与同口径统计。"""
+
+    pages: int = 1
+    stats: dict[str, int] = Field(default_factory=dict)
+
+
 class EntryPayload(BaseModel):
     """登记或修改一条业务记录时提交的字段集合。"""
 
